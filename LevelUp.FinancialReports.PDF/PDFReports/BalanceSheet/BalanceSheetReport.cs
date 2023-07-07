@@ -1,8 +1,6 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Text;
+﻿using LevelUp.FinancialReports.PDF.Extensions;
 using LevelUp.FinancialReports.PDF.SharedModels;
 using QuestPDF.Fluent;
-using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 
 namespace LevelUp.FinancialReports.PDF.PDFReports.BalanceSheet;
@@ -10,13 +8,12 @@ namespace LevelUp.FinancialReports.PDF.PDFReports.BalanceSheet;
 public class BalanceSheetReport
 {
     private Document? _pdfDocument;
-    private readonly float _pageMarginInches = (float).5;
 
     public string OrganizationName { get; }
     public ReportMonth ReportMonth { get; }
     public int ReportYear { get; }
-    public int AccountFontSize { get; set; } = 11;
-    public List<BalanceSheetAccount> Accounts { get; } = new();
+    public List<BalanceSheetAccount> Accounts { get; }
+    public BalanceSheetReportOptions ReportOptions { get; }
 
     /// <summary>
     /// 
@@ -25,7 +22,7 @@ public class BalanceSheetReport
     /// <param name="reportMonth"></param>
     /// <param name="reportYear"></param>
     /// <exception cref="ArgumentNullException"></exception>
-    public BalanceSheetReport(string organizationName, ReportMonth reportMonth, int reportYear)
+    public BalanceSheetReport(string organizationName, ReportMonth reportMonth, int reportYear, BalanceSheetReportOptions? options = null)
     {
         if (string.IsNullOrEmpty(organizationName))
         {
@@ -37,6 +34,9 @@ public class BalanceSheetReport
         ReportMonth = reportMonth;
         OrganizationName = organizationName;
         ReportYear = reportYear;
+
+        Accounts = new();
+        ReportOptions = options ?? new BalanceSheetReportOptions();
     }
 
     public BalanceSheetReport AddAccount(BalanceSheetAccount account)
@@ -56,7 +56,7 @@ public class BalanceSheetReport
                 composeBalanceTable(page.Content().PaddingVertical(20));
                 page.Footer().AlignCenter().Text(text =>
                 {
-                    text.CurrentPageNumber();
+                    text.CurrentPageNumber().FontSize(ReportOptions.FooterFontSize);
                 });
             });
 
@@ -70,9 +70,19 @@ public class BalanceSheetReport
         container.Column(column =>
         {
             column.Spacing(1);
-            column.Item().AlignCenter().Text(OrganizationName).Bold();
-            column.Item().AlignCenter().Text("Balance Sheet");
-            column.Item().AlignCenter().Text($"{ReportMonth.ToString()} {ReportYear.ToString()}");
+            column.Item()
+                .AlignCenter()
+                .Text(OrganizationName)
+                .Bold()
+                .FontSize(ReportOptions.HeaderFontSize);
+            column.Item()
+                .AlignCenter()
+                .Text("Balance Sheet")
+                .FontSize(ReportOptions.HeaderFontSize);
+            column.Item()
+                .AlignCenter()
+                .Text($"{ReportMonth.ToString()} {ReportYear.ToString()}")
+                .FontSize(ReportOptions.HeaderFontSize);
         });
     }
 
@@ -89,22 +99,12 @@ public class BalanceSheetReport
                 row.RelativeItem()
                     .Text("Assets")
                     .Bold()
-                    .Underline();
+                    .Underline()
+                    .FontSize(ReportOptions.AccountFontSize);
             });
             foreach (var account in Accounts.Where(x => x.AccountType == BalanceSheetAccountType.Asset))
             {
-                column.Item().Row(row =>
-                {
-                    if (Accounts.Any(x => x.AccountNumber is > 0))
-                    {
-                        var maxAccountNumberLength = 75;
-                        row.ConstantItem(maxAccountNumberLength)
-                            .Text(account.AccountNumber?.ToString() ?? "--");
-                    }
-                    row.ConstantItem(125).AlignLeft().Text(account.Name);
-                    row.ConstantItem(50).AlignLeft().Text(account.Balance.ToString());
-                    row.RelativeItem().EnsureSpace();
-                });
+                column.CreateRow(account, Accounts.Any(x => x.AccountNumber is > 0), ReportOptions.AccountFontSize);
             }
 
             column.Item()
@@ -114,38 +114,50 @@ public class BalanceSheetReport
                 row.RelativeItem()
                     .Text("Liabilities")
                     .Bold()
-                    .Underline();
+                    .Underline()
+                    .FontSize(ReportOptions.AccountFontSize);
             });
 
             foreach (var account in Accounts.Where(x => x.AccountType == BalanceSheetAccountType.Liability))
             {
-                column.Item().Row(row =>
-                {
-                    if (Accounts.Any(x => x.AccountNumber is > 0))
-                    {
-                        var maxAccountNumberLength = 75;
-                        row.ConstantItem(maxAccountNumberLength)
-                            .Text(account.AccountNumber?.ToString() ?? "--");
-                    }
-                    row.ConstantItem(125).AlignLeft().Text(account.Name);
-                    row.ConstantItem(50).AlignLeft().Text(account.Balance.ToString());
-                    row.RelativeItem().EnsureSpace();
-                });
+                column.CreateRow(account, Accounts.Any(x => x.AccountNumber is > 0), ReportOptions.AccountFontSize);
             }
 
             column.Item()
                 .PaddingVertical(10)
                 .Row(row =>
                 {
-                    var netWorth =
-                        (Accounts.Where(x => x.AccountType == BalanceSheetAccountType.Asset).Select(x => x.Balance)
-                            .Sum()) - (Accounts.Where(x => x.AccountType == BalanceSheetAccountType.Liability)
-                            .Select(x => x.Balance).Sum());
-                    row.RelativeItem()
-                        .Text($"Balance: ${Math.Round(netWorth), 2}")
-                        .Underline();
+                    var netWorth = getNetWorth();
+                        row.RelativeItem()
+                        .Text($"Balance: ${Math.Round(netWorth, 2)}")
+                        .Underline().FontSize(ReportOptions.AccountFontSize);
                 });
         });
+    }
+
+    private decimal getNetWorth()
+    {
+        var assets = Accounts.Where(x => x.AccountType == BalanceSheetAccountType.Asset).ToList();
+        var assetSum = getAccountTotals(assets);
+
+        var liabilities = Accounts.Where(x => x.AccountType == BalanceSheetAccountType.Liability).ToList();
+        var liabilitySum = getAccountTotals(liabilities);
+
+        var netWorth = assetSum - liabilitySum;
+        return netWorth;
+    }
+
+    private decimal getAccountTotals(List<BalanceSheetAccount> accounts)
+    {
+        var accountSum = accounts.Where(x => x.Balance != null && x.Balance != 0).Select(x => x.Balance!.Value).Sum();
+        var totalSum = accountSum;
+        foreach (var account in accounts)
+        {
+            var childAccountSum = getAccountTotals(account.ChildAccounts);
+            totalSum += childAccountSum;
+        }
+
+        return totalSum;
     }
     private void validateReportYear(int year)
     {
