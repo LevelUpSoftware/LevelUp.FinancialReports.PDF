@@ -1,7 +1,16 @@
 # LevelUp.FinancialReports.PDF
-A .NET Core library for automatically generating financial reports in PDF format.
+A .NET Core library for easily generating financial reports in PDF format.
 
-## BalanceSheetReport
+## Dependencies
+This library uses QuestPDF to generate PDF documents. Out of respect for their license and usage policies, you will need to set a QuestPDF license type in order to generate PDF reports using this library.
+You can read more about the different types of licenses they offer [here](https://www.questpdf.com/license/guide.html) and how to set the license selection [here](https://www.questpdf.com/license/configuration.html).
+
+## Reports
+
+### BalanceSheetReport
+_Creates a basic balance sheet report._
+
+Example:
 ```
 var balanceSheetReport = new BalanceSheetReport("Jellystone Park", ReportMonth.February, 2008);
 
@@ -10,6 +19,6 @@ assetaccount.AddChildAccount(new BalanceSheetAccount("Petty Cash", BalanceSheetA
 balanceSheetReport.AddAccount(assetAccount);
 
 var pdfByteArray = balanceSheetReport.Compose();
-
+File.WriteAllBytes($"C:\\Users\\JohnSmith\\Documents\\TestPdf.pdf", pdfByteArray);
 
 ```
